@@ -4,6 +4,7 @@ import sys
 if sys.version_info < (3, 11):
     raise RuntimeError("Python 3.11 or higher is required for the MCP plugin")
 
+import difflib
 import json
 import struct
 import threading
@@ -584,7 +585,17 @@ def get_function_by_name(
         if name in DEMANGLED_TO_EA:
             function_address = DEMANGLED_TO_EA[name]
         else:
-            raise IDAError(f"No function found with name {name}")
+            # Get all function names
+            all_functions = [get_function(addr)["name"] for addr in idautils.Functions()]
+            # Also include demangled names if available
+            demangled_names = list(DEMANGLED_TO_EA.keys())
+            all_names = list(set(all_functions + demangled_names))
+            # Find similar names
+            suggestions = difflib.get_close_matches(name, all_names, n=5)
+            if suggestions:
+                raise IDAError(f"No function found with name '{name}'. Did you mean: {', '.join(suggestions)}?")
+            else:
+                raise IDAError(f"No function found with name {name}")
     return get_function(function_address)
 
 @jsonrpc
@@ -1298,7 +1309,14 @@ def get_global_variable_value_by_name(variable_name: Annotated[str, "Name of the
     """
     ea = idaapi.get_name_ea(idaapi.BADADDR, variable_name)
     if ea == idaapi.BADADDR:
-        raise IDAError(f"Global variable {variable_name} not found")
+        # Get all global variable names
+        all_globals = [name for addr, name in idautils.Names() if not idaapi.get_func(addr)]
+        # Find similar names
+        suggestions = difflib.get_close_matches(variable_name, all_globals, n=5)
+        if suggestions:
+            raise IDAError(f"Global variable '{variable_name}' not found. Did you mean: {', '.join(suggestions)}?")
+        else:
+            raise IDAError(f"Global variable '{variable_name}' not found")
 
     return get_global_variable_value_internal(ea)
 
