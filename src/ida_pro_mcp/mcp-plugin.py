@@ -1924,6 +1924,9 @@ def read_memory_bytes(
     Only use this function if `get_global_variable_at` and `get_global_variable_by_name`
     both failed.
     """
+    if ida_bytes.is_loaded(memory_address) == False:
+        raise IDAError(f"Address {memory_address:#x} is not loaded in the database")
+
     return ' '.join(f'{x:#02x}' for x in ida_bytes.get_bytes(parse_address(memory_address), size))
 
 @jsonrpc
@@ -1937,6 +1940,8 @@ def data_read_byte(
     Only use this function if `get_global_variable_at` failed.
     """
     ea = parse_address(address)
+    if ida_bytes.is_loaded(ea) == False:
+        raise IDAError(f"Address {ea:#x} is not loaded in the database")
     return ida_bytes.get_wide_byte(ea)
 
 @jsonrpc
@@ -1950,6 +1955,8 @@ def data_read_word(
     Only use this function if `get_global_variable_at` failed.
     """
     ea = parse_address(address)
+    if ida_bytes.is_loaded(ea) == False:
+        raise IDAError(f"Address {ea:#x} is not loaded in the database")
     return ida_bytes.get_wide_word(ea)
 
 @jsonrpc
@@ -1963,6 +1970,8 @@ def data_read_dword(
     Only use this function if `get_global_variable_at` failed.
     """
     ea = parse_address(address)
+    if ida_bytes.is_loaded(ea) == False:
+        raise IDAError(f"Address {ea:#x} is not loaded in the database")
     return ida_bytes.get_wide_dword(ea)
 
 @jsonrpc
@@ -1976,6 +1985,8 @@ def data_read_qword(
     Only use this function if `get_global_variable_at` failed.
     """
     ea = parse_address(address)
+    if ida_bytes.is_loaded(ea) == False:
+        raise IDAError(f"Address {ea:#x} is not loaded in the database")
     return ida_bytes.get_qword(ea)
 
 @jsonrpc
@@ -1989,7 +2000,10 @@ def data_read_string(
     Only use this function if `get_global_variable_at` failed.
     """
     try:
-        return idaapi.get_strlit_contents(parse_address(address),-1,0).decode("utf-8")
+        ea = parse_address(address)
+        if ida_bytes.is_loaded(ea) == False:
+            raise IDAError(f"Address {ea:#x} is not loaded in the database")
+        return idaapi.get_strlit_contents(ea,-1,0).decode("utf-8")
     except Exception as e:
         return "Error:" + str(e)
 
