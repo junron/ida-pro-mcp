@@ -593,7 +593,8 @@ def get_function_by_name(
             # Find similar names
             suggestions = difflib.get_close_matches(name, all_names, n=5)
             if suggestions:
-                raise IDAError(f"No function found with name '{name}'. Did you mean: {', '.join(suggestions)}?")
+                suggestions_formatted = ", ".join(f"'{s}'" for s in suggestions)
+                raise IDAError(f"No function found with name '{name}'. Did you mean: {suggestions_formatted}?")
             else:
                 raise IDAError(f"No function found with name {name}")
     return get_function(function_address)
@@ -705,6 +706,19 @@ def list_functions(
     """List all functions in the database (paginated)"""
     functions = [get_function(address) for address in idautils.Functions()]
     return paginate(functions, offset, count)
+
+
+@jsonrpc
+@idaread
+def search_functions(
+    keyword: Annotated[str, "Keyword to search for in function names (case-insensitive, substring match)"],
+) -> list[str]:
+    """Search for functions whose names match the keyword"""
+    all_functions = [get_function(addr)["name"] for addr in idautils.Functions()]
+    demangled_names = list(DEMANGLED_TO_EA.keys())
+    all_names = list(set(all_functions + demangled_names))
+    return difflib.get_close_matches(keyword, all_names, n=10)
+
 
 class Global(TypedDict):
     address: str
@@ -1151,6 +1165,8 @@ def get_callers(
 def get_entry_points() -> list[Function]:
     """Get all entry points in the database"""
     result = []
+    if ida_entry.get_entry_qty() > 100:
+        raise IDAError("Too many entry points (>100), aborting to avoid UI freeze")
     for i in range(ida_entry.get_entry_qty()):
         ordinal = ida_entry.get_entry_ordinal(i)
         address = ida_entry.get_entry(ordinal)
@@ -1314,7 +1330,8 @@ def get_global_variable_value_by_name(variable_name: Annotated[str, "Name of the
         # Find similar names
         suggestions = difflib.get_close_matches(variable_name, all_globals, n=5)
         if suggestions:
-            raise IDAError(f"Global variable '{variable_name}' not found. Did you mean: {', '.join(suggestions)}?")
+            suggestions_formatted = ", ".join(f"'{s}'" for s in suggestions)
+            raise IDAError(f"Global variable '{variable_name}' not found. Did you mean: {suggestions_formatted}?")
         else:
             raise IDAError(f"Global variable '{variable_name}' not found")
 
@@ -1331,36 +1348,39 @@ def get_global_variable_value_at_address(ea: Annotated[str, "Address of the glob
     ea = parse_address(ea)
     return get_global_variable_value_internal(ea)
 
-def get_global_variable_value_internal(ea: int) -> str:
-     # Get the type information for the variable
-     tif = ida_typeinf.tinfo_t()
-     if not ida_nalt.get_tinfo(tif, ea):
-         # No type info, maybe we can figure out its size by its name
-         if not ida_bytes.has_any_name(ea):
-             raise IDAError(f"Failed to get type information for variable at {ea:#x}")
+def get_global_variable_value_internal(ea: int) -> str:    
+    if ida_bytes.is_loaded(ea) == False:
+        raise IDAError(f"Address {ea:#x} is not loaded in the database")
 
-         size = ida_bytes.get_item_size(ea)
-         if size == 0:
-             raise IDAError(f"Failed to get type information for variable at {ea:#x}")
-     else:
-         # Determine the size of the variable
-         size = tif.get_size()
+    # Get the type information for the variable
+    tif = ida_typeinf.tinfo_t()
+    if not ida_nalt.get_tinfo(tif, ea):
+        # No type info, maybe we can figure out its size by its name
+        if not ida_bytes.has_any_name(ea):
+            raise IDAError(f"Failed to get type information for variable at {ea:#x}")
 
-     # Read the value based on the size
-     if size == 0 and tif.is_array() and tif.get_array_element().is_decl_char():
-         return_string = idaapi.get_strlit_contents(ea, -1, 0).decode("utf-8").strip()
-         return f"\"{return_string}\""
-     elif size == 1:
-         return hex(ida_bytes.get_byte(ea))
-     elif size == 2:
-         return hex(ida_bytes.get_word(ea))
-     elif size == 4:
-         return hex(ida_bytes.get_dword(ea))
-     elif size == 8:
-         return hex(ida_bytes.get_qword(ea))
-     else:
-         # For other sizes, return the raw bytes
-         return ' '.join(hex(x) for x in ida_bytes.get_bytes(ea, size))
+        size = ida_bytes.get_item_size(ea)
+        if size == 0:
+            raise IDAError(f"Failed to get type information for variable at {ea:#x}")
+    else:
+        # Determine the size of the variable
+        size = tif.get_size()
+
+    # Read the value based on the size
+    if size == 0 and tif.is_array() and tif.get_array_element().is_decl_char():
+        return_string = idaapi.get_strlit_contents(ea, -1, 0).decode("utf-8").strip()
+        return f"\"{return_string}\""
+    elif size == 1:
+        return hex(ida_bytes.get_byte(ea))
+    elif size == 2:
+        return hex(ida_bytes.get_word(ea))
+    elif size == 4:
+        return hex(ida_bytes.get_dword(ea))
+    elif size == 8:
+        return hex(ida_bytes.get_qword(ea))
+    else:
+        # For other sizes, return the raw bytes
+        return ' '.join(hex(x) for x in ida_bytes.get_bytes(ea, size))
 
 
 @jsonrpc
