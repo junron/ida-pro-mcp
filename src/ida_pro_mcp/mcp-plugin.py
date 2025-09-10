@@ -711,13 +711,13 @@ def list_functions(
 @jsonrpc
 @idaread
 def search_functions(
-    keyword: Annotated[str, "Keyword to search for in function names (case-insensitive, substring match)"],
+    substring: Annotated[str, "String to search for in function names"],
 ) -> list[str]:
-    """Search for functions whose names match the keyword"""
+    """Search for functions whose names match the substring"""
     all_functions = [get_function(addr)["name"] for addr in idautils.Functions()]
     demangled_names = list(DEMANGLED_TO_EA.keys())
     all_names = list(set(all_functions + demangled_names))
-    return difflib.get_close_matches(keyword, all_names, n=10)
+    return difflib.get_close_matches(substring, all_names, n=10)
 
 
 class Global(TypedDict):
@@ -1924,16 +1924,26 @@ def read_memory_bytes(
     Only use this function if `get_global_variable_at` and `get_global_variable_by_name`
     both failed.
     """
-    if ida_bytes.is_loaded(memory_address) == False:
-        raise IDAError(f"Address {memory_address:#x} is not loaded in the database")
+    ea = parse_address(memory_address)
+    if ida_bytes.is_loaded(ea) == False:
+        raise IDAError(f"Address {ea:#x} is not loaded in the database")
 
-    return ' '.join(f'{x:#02x}' for x in ida_bytes.get_bytes(parse_address(memory_address), size))
+    return ' '.join(f'{x:#02x}' for x in ida_bytes.get_bytes(ea, size))
+
+
+class MultiBaseInteger(TypedDict):
+    hex: str
+    dec: int
+
+    @classmethod
+    def from_int(cls, value: int) -> 'MultiBaseInteger':
+        return cls(hex=hex(value), dec=value)
 
 @jsonrpc
 @idaread
 def data_read_byte(
     address: Annotated[str, "Address to get 1 byte value from"],
-) -> int:
+) -> MultiBaseInteger:
     """
     Read the 1 byte value at the specified address.
 
@@ -1942,13 +1952,13 @@ def data_read_byte(
     ea = parse_address(address)
     if ida_bytes.is_loaded(ea) == False:
         raise IDAError(f"Address {ea:#x} is not loaded in the database")
-    return ida_bytes.get_wide_byte(ea)
+    return MultiBaseInteger.from_int(ida_bytes.get_wide_byte(ea))
 
 @jsonrpc
 @idaread
 def data_read_word(
     address: Annotated[str, "Address to get 2 bytes value from"],
-) -> int:
+) -> MultiBaseInteger:
     """
     Read the 2 byte value at the specified address as a WORD.
 
@@ -1957,13 +1967,13 @@ def data_read_word(
     ea = parse_address(address)
     if ida_bytes.is_loaded(ea) == False:
         raise IDAError(f"Address {ea:#x} is not loaded in the database")
-    return ida_bytes.get_wide_word(ea)
+    return MultiBaseInteger.from_int(ida_bytes.get_wide_word(ea))
 
 @jsonrpc
 @idaread
 def data_read_dword(
     address: Annotated[str, "Address to get 4 bytes value from"],
-) -> int:
+) -> MultiBaseInteger:
     """
     Read the 4 byte value at the specified address as a DWORD.
 
@@ -1972,7 +1982,7 @@ def data_read_dword(
     ea = parse_address(address)
     if ida_bytes.is_loaded(ea) == False:
         raise IDAError(f"Address {ea:#x} is not loaded in the database")
-    return ida_bytes.get_wide_dword(ea)
+    return MultiBaseInteger.from_int(ida_bytes.get_wide_dword(ea))
 
 @jsonrpc
 @idaread
@@ -1987,7 +1997,7 @@ def data_read_qword(
     ea = parse_address(address)
     if ida_bytes.is_loaded(ea) == False:
         raise IDAError(f"Address {ea:#x} is not loaded in the database")
-    return ida_bytes.get_qword(ea)
+    return MultiBaseInteger.from_int(ida_bytes.get_qword(ea))
 
 @jsonrpc
 @idaread
